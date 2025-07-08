@@ -1,0 +1,18 @@
+===== Zero-Shot SAM Dice per Organ =====
+#  Organ          Dice
+------------------------------
+1  liver          0.9222217388739891
+2  right_kidney   0.9599757775382185
+3  spleen         0.9567227901131417
+4  pancreas       0.8008775047042943
+5  aorta          0.9533818197320568
+6  IVC            0.927164524647379
+7  right_adrenal  0.7404918212186707
+8  left_adrenal   0.8084352908482249
+9  gallbladder    0.9091701082911167
+10 esophagus      0.8601015405389485
+11 stomach        0.8642535880226238
+12 duodenum       N/A
+13 left_kidney    0.9539023975180501
+------------------------------
+Macro-average       0.8881

@@ -1,53 +1,82 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, numpy as np, cv2, torch, json
+
+import os, json, numpy as np, torch
 from tqdm import tqdm
-from monai.metrics import compute_dice
 from segment_anything import sam_model_registry, SamPredictor
 
 
-data_root   = "data/npy/CT_Abd"
-ckpt_path   = "work_dir/SAM/sam_vit_b_01ec64.pth"
-out_dir     = "results_sam_zero"
-device      = "cuda" if torch.cuda.is_available() else "cpu"
+DATA_ROOT = "data/npy/CT_Abd"
+CKPT      = "work_dir/SAM/sam_vit_b_01ec64.pth"
+OUT_DIR   = "results_sam_multi"
+DEVICE    = "cuda" if torch.cuda.is_available() else "cpu"
+
+ORGAN_IDS = {
+     1: "liver",          2: "right_kidney",  3: "spleen",       4: "pancreas",
+     5: "aorta",          6: "IVC",           7: "right_adrenal",8: "left_adrenal",
+     9: "gallbladder",   10: "esophagus",    11: "stomach",     12: "duodenum",
+    13: "left_kidney",
+}
 
 
-os.makedirs(out_dir, exist_ok=True)
-sam   = sam_model_registry["vit_b"](checkpoint=ckpt_path).to(device)
-pred  = SamPredictor(sam)
+os.makedirs(OUT_DIR, exist_ok=True)
+sam = sam_model_registry["vit_b"](checkpoint=CKPT).to(DEVICE)
+predictor = SamPredictor(sam)
 
-names = sorted(os.listdir(os.path.join(data_root, "imgs")))
-dice_scores = []
+dice_bank = {oid: [] for oid in ORGAN_IDS}
+eps = 1e-6
 
-for name in tqdm(names, desc="SAM Zero-Shot"):
-    img = np.load(os.path.join(data_root, "imgs", name))
-    gt  = np.load(os.path.join(data_root, "gts",  name))
+img_files = sorted(os.listdir(os.path.join(DATA_ROOT, "imgs")))
 
 
-    ys, xs = np.where(gt > 0)
-    if xs.size == 0:
-        mask_pred = np.zeros_like(gt, dtype=np.uint8)
-    else:
+for fname in tqdm(img_files, desc="SAM inference"):
+    img = np.load(os.path.join(DATA_ROOT, "imgs", fname))  
+    gt  = np.load(os.path.join(DATA_ROOT, "gts",  fname)) 
+    img_bgr = (img * 255).astype(np.uint8)[..., ::-1]
+    predictor.set_image(img_bgr)
+
+    for oid, organ_name in ORGAN_IDS.items():
+        mask_gt = (gt == oid).astype(np.uint8)
+        if mask_gt.sum() == 0:          # 此 slice 没有该器官
+            continue
+
+        ys, xs = np.where(mask_gt)
         bbox = np.array([xs.min(), ys.min(), xs.max(), ys.max()])
-        img_bgr = (img * 255).astype(np.uint8)[..., ::-1]
-        pred.set_image(img_bgr)
-        masks, *_ = pred.predict(box=bbox[None, :], multimask_output=False)
+
+        masks, *_ = predictor.predict(box=bbox[None, :], multimask_output=False)
         mask_pred = masks[0].astype(np.uint8)
 
-
-    np.save(os.path.join(out_dir, name.replace(".npy", "_pred.npy")), mask_pred)
-
-
-    dice = compute_dice(torch.tensor(mask_pred[None, None]),
-                        torch.tensor(gt        [None, None]))
-    dice_scores.append(float(dice))
-
-print(f"\nZero-shot Dice (mean ± std over {len(dice_scores)}) = "
-      f"{np.mean(dice_scores):.4f} ± {np.std(dice_scores):.4f}")
+        inter = (mask_pred & mask_gt).sum()
+        union = mask_pred.sum() + mask_gt.sum()
+        dice  = (2 * inter + eps) / (union + eps)
+        dice_bank[oid].append(dice)
 
 
-json.dump({"mean_dice": np.mean(dice_scores),
-           "std_dice":  np.std(dice_scores)},
-          open(os.path.join(out_dir, "metrics.json"), "w"))
-print(f"All masks & metrics saved in: {out_dir}")
+per_mean = {ORGAN_IDS[oid]: (np.mean(v) if v else None) for oid, v in dice_bank.items()}
+macro_mean = np.mean([v for v in per_mean.values() if v is not None])
+
+print("\n===== Zero-Shot SAM Dice per Organ =====")
+print("{:<3s}{:<15s}{}".format("#", "Organ", "Dice"))
+print("-" * 30)
+for idx, (name, val) in enumerate(per_mean.items(), 1):
+    print(f"{idx:<3d}{name:<15s}{val:.4f}" if val is not None else f"{idx:<3d}{name:<15s}N/A")
+print("-" * 30)
+print(f"{'Macro-average':<18s}{macro_mean:.4f}")
+
+
+json_path = os.path.join(OUT_DIR, "multi_metrics.json")
+txt_path  = os.path.join(OUT_DIR, "dice_table.txt")
+
+json.dump({"per_organ": per_mean, "macro": macro_mean}, open(json_path, "w"))
+
+with open(txt_path, "w") as f:
+    f.write("===== Zero-Shot SAM Dice per Organ =====\n")
+    f.write("{:<3s}{:<15s}{}\n".format("#", "Organ", "Dice"))
+    f.write("-" * 30 + "\n")
+    for idx, (name, val) in enumerate(per_mean.items(), 1):
+        f.write(f"{idx:<3d}{name:<15s}{val if val is not None else 'N/A'}\n")
+    f.write("-" * 30 + "\n")
+    f.write(f"Macro-average       {macro_mean:.4f}\n")
+
+print(f"\nJSON saved to {json_path}\nTable saved to {txt_path}")

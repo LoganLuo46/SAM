@@ -1,3 +1,22 @@
 
-Zero-shot Dice (mean ± std over 3621) = nan ± nan
-All masks & metrics saved in: results_sam_zero
+===== Zero-Shot SAM Dice per Organ =====
+#  Organ          Dice
+------------------------------
+1  liver          0.9222
+2  right_kidney   0.9600
+3  spleen         0.9567
+4  pancreas       0.8009
+5  aorta          0.9534
+6  IVC            0.9272
+7  right_adrenal  0.7405
+8  left_adrenal   0.8084
+9  gallbladder    0.9092
+10 esophagus      0.8601
+11 stomach        0.8643
+12 duodenum       N/A
+13 left_kidney    0.9539
+------------------------------
+Macro-average     0.8881
+
+JSON saved to results_sam_multi/multi_metrics.json
+Table saved to results_sam_multi/dice_table.txt
